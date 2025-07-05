@@ -3,13 +3,14 @@
 import re
 import os
 import requests
+from dotenv import load_dotenv
 from telegram.ext import MessageHandler, Filters
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 from difflib import get_close_matches  # для поиска похожих
-
+load_dotenv()
 # === Настройки ===
-TOKEN = "8077388300:AAFiuyfOYTIggajrX2LQqXP041S0qIIGopk"  # Замените на токен от BotFather
+TOKEN = os.getenv("TOKEN_TG")
 API_BASE = "https://api.alquran.cloud/v1"
 LANGUAGE_CODE = "ru.kuliev"  # Можно заменить на ky.osmonov если появится поддержка
 
