@@ -938,10 +938,37 @@ class WebhookHandler(tornado.web.RequestHandler):
             print(f"Parsed JSON: {data}")
 
             # Создаем Update объект
-            print(f"telegram_app.bot: {self.telegram_app.bot}")  # Для отладки
-            update = Update.de_json(data, None)  # Изменили здесь
-            print(f"Created update object: {update}")
+            # Проверяем структуру данных
+            print(f"Raw data keys: {data.keys()}")
+            if 'update_id' not in data:
+                print("ERROR: update_id missing in data!")
+                self.set_status(400)
+                self.write({"error": "update_id missing"})
+                return
 
+            # Создаем Update вручную
+            try:
+                update = Update(
+                    update_id=data['update_id'],
+                    message=data.get('message'),
+                    edited_message=data.get('edited_message'),
+                    channel_post=data.get('channel_post'),
+                    edited_channel_post=data.get('edited_channel_post'),
+                    inline_query=data.get('inline_query'),
+                    chosen_inline_result=data.get('chosen_inline_result'),
+                    callback_query=data.get('callback_query'),
+                    shipping_query=data.get('shipping_query'),
+                    pre_checkout_query=data.get('pre_checkout_query'),
+                    poll=data.get('poll'),
+                    poll_answer=data.get('poll_answer'),
+                    my_chat_member=data.get('my_chat_member'),
+                    chat_member=data.get('chat_member'),
+                    chat_join_request=data.get('chat_join_request')
+                )
+            except Exception as e:
+                print(f"Error creating Update manually: {e}")
+                # Используем стандартный метод
+                update = Update.de_json(data, None)
             if update is None:
                 print("ERROR: Failed to create update object")
                 self.set_status(400)
