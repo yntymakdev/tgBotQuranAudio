@@ -938,7 +938,8 @@ class WebhookHandler(tornado.web.RequestHandler):
             print(f"Parsed JSON: {data}")
 
             # Создаем Update объект
-            update = Update.de_json(data, self.telegram_app.bot)
+            print(f"telegram_app.bot: {self.telegram_app.bot}")  # Для отладки
+            update = Update.de_json(data, None)  # Изменили здесь
             print(f"Created update object: {update}")
 
             if update is None:
