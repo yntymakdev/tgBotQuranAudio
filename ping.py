@@ -908,6 +908,7 @@ def main(TOKEN='8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So'):
 
     # Создаем Telegram приложение
     telegram_app = Application.builder().token(TOKEN).build()
+    asyncio.run(telegram_app.initialize())
 
     # Добавляем обработчики
     # telegram_app.add_handler(CommandHandler("start", start))
@@ -923,15 +924,17 @@ def main(TOKEN='8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So'):
     web_app = tornado.web.Application([
         (r"/health", HealthHandler),
         (r"/ping", PingHandler),
-        (r"/webhook", WebhookHandler, dict(telegram_app=telegram_app)),
-        (r"/", PingHandler),  # Это можно оставить для проверки
+        (r"/", PingHandler),
+        # Основной webhook маршрут
+        (r"/webhook", WebhookHandler, {"telegram_app": telegram_app}),
+        # Webhook с токеном (более безопасный вариант)
         (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),  # Обработка запросов с токеном
     ])
 
     # Запуск сервера
     web_app.listen(PORT)
     print(f"Сервер запущен на порту {PORT}")
-    print(f"Webhook URL: https://tgbotquranaudio-3.onrender.com/{TOKEN}")
+    print(f"Webhook URL: https://tgbotquranaudio-4.onrender.com/{TOKEN}")
 
     # Запуск event loop
     tornado.ioloop.IOLoop.current().start()
