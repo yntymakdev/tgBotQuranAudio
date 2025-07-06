@@ -342,34 +342,67 @@ async def handle_text_ayah_request(update: Update, context: ContextTypes.DEFAULT
 
 
 # === Команда /start ===
+# async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     welcome_text = (
+#         "🕌 *Ассаламу алейкум!*\n"
+#         "Добро пожаловать в *Quran Audio Bot*! 📖✨\n\n"
+#         "🎯 *Что умеет этот бот:*\n"
+#         "• 🎧 Слушай аяты Корана\n"
+#         "• 📚 Читай переводы\n"
+#         "• 🔍 Ищи по названием или номерам\n\n"
+#         "🧠 *Как искать аят:*\n"
+#         "Напиши, например:\n"
+#         "• `2:255`\n"
+#         "И получишь нужный аят, перевод и аудио! 🎧\n\n"
+#         "🚀 *Выберите действие ниже:*"
+#     )
+#
+#     keyboard = [
+#         [InlineKeyboardButton("📖 Выбрать суру", callback_data="show_surahs_0")],
+#         [InlineKeyboardButton("🔍 Поиск", callback_data="search_help")],
+#         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
+#     ]
+#
+#     await update.message.reply_text(
+#         welcome_text,
+#         reply_markup=InlineKeyboardMarkup(keyboard),
+#         parse_mode=ParseMode.MARKDOWN
+#     )
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_text = (
-        "🕌 *Ассаламу алейкум!*\n"
-        "Добро пожаловать в *Quran Audio Bot*! 📖✨\n\n"
-        "🎯 *Что умеет этот бот:*\n"
-        "• 🎧 Слушай аяты Корана\n"
-        "• 📚 Читай переводы\n"
-        "• 🔍 Ищи по названием или номерам\n\n"
-        "🧠 *Как искать аят:*\n"
-        "Напиши, например:\n"
-        "• `2:255`\n"
-        "И получишь нужный аят, перевод и аудио! 🎧\n\n"
-        "🚀 *Выберите действие ниже:*"
-    )
+    print("Start function called")  # Отладка
 
-    keyboard = [
-        [InlineKeyboardButton("📖 Выбрать суру", callback_data="show_surahs_0")],
-        [InlineKeyboardButton("🔍 Поиск", callback_data="search_help")],
-        [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
-    ]
+    try:
+        welcome_text = (
+            "🕌 *Ассаламу алейкум!*\n"
+            "Добро пожаловать в *Quran Audio Bot*! 📖✨\n\n"
+            "🎯 *Что умеет этот бот:*\n"
+            "• 🎧 Слушай аяты Корана\n"
+            "• 📚 Читай переводы\n"
+            "• 🔍 Ищи по названием или номерам\n\n"
+            "🧠 *Как искать аят:*\n"
+            "Напиши, например:\n"
+            "• `2:255`\n"
+            "И получишь нужный аят, перевод и аудио! 🎧\n\n"
+            "🚀 *Выберите действие ниже:*"
+        )
 
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.MARKDOWN
-    )
+        keyboard = [
+            [InlineKeyboardButton("📖 Выбрать суру", callback_data="show_surahs_0")],
+            [InlineKeyboardButton("🔍 Поиск", callback_data="search_help")],
+            [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
+        ]
 
+        await update.effective_message.reply_text(
+            welcome_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        print("Start message sent successfully")  # Отладка
 
+    except Exception as e:
+        print(f"Error in start: {e}")
+        await update.effective_message.reply_text("Ошибка при запуске. Попробуйте еще раз.")
 # === Главное меню ===
 async def show_main_menu(query):
     welcome_text = (
@@ -938,15 +971,6 @@ class WebhookHandler(tornado.web.RequestHandler):
         self.write({"status": "Webhook is working", "method": "GET"})
 
 
-def start(update, context):
-    """Обработчик команды /start"""
-    update.message.reply_text('Привет! Я бот для чтения Корана.')
-
-
-def echo(update, context):
-    """Эхо-обработчик для всех текстовых сообщений"""
-    update.message.reply_text(f"Вы написали: {update.message.text}")
-
 
 def main():
     TOKEN = "8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So"
@@ -985,14 +1009,16 @@ def main():
         (r"/ping", PingHandler),
         (r"/webhook", WebhookHandler, {"telegram_app": telegram_app}),
         (r"/webhook/", WebhookHandler, {"telegram_app": telegram_app}),
-        (r"/", PingHandler),
+        # (r"/", PingHandler),
+        (r"/", WebhookHandler, {"telegram_app": telegram_app}),
+
         (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),
     ])
 
     # Запуск сервера
     web_app.listen(PORT)
     print(f"Сервер запущен на порту {PORT}")
-    print(f"Webhook URL: https://tgbotquranaudio-6.onrender.com/{TOKEN}")
+    print(f"Webhook URL: https://tgbotquranaudio-7.onrender.com/{TOKEN}")
 
     # Запуск tornado event loop
     tornado.ioloop.IOLoop.current().start()
