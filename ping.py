@@ -947,28 +947,31 @@ class WebhookHandler(tornado.web.RequestHandler):
                 return
 
             # Создаем Update вручную
+            # Простое и надежное решение
             try:
-                update = Update(
-                    update_id=data['update_id'],
-                    message=data.get('message'),
-                    edited_message=data.get('edited_message'),
-                    channel_post=data.get('channel_post'),
-                    edited_channel_post=data.get('edited_channel_post'),
-                    inline_query=data.get('inline_query'),
-                    chosen_inline_result=data.get('chosen_inline_result'),
-                    callback_query=data.get('callback_query'),
-                    shipping_query=data.get('shipping_query'),
-                    pre_checkout_query=data.get('pre_checkout_query'),
-                    poll=data.get('poll'),
-                    poll_answer=data.get('poll_answer'),
-                    my_chat_member=data.get('my_chat_member'),
-                    chat_member=data.get('chat_member'),
-                    chat_join_request=data.get('chat_join_request')
-                )
-            except Exception as e:
-                print(f"Error creating Update manually: {e}")
-                # Используем стандартный метод
                 update = Update.de_json(data, None)
+
+                # Дополнительная проверка
+                if update and update.message:
+                    print(f"Message created successfully: {update.message}")
+
+            except Exception as e:
+                print(f"Error with de_json: {e}")
+                # Создаем вручную, но правильно
+                from telegram import Message, User, Chat
+
+                if 'message' in data:
+                    msg_data = data['message']
+                    user_data = msg_data.get('from', {})
+                    chat_data = msg_data.get('chat', {})
+
+                    user = User.de_json(user_data, None) if user_data else None
+                    chat = Chat.de_json(chat_data, None) if chat_data else None
+                    message = Message.de_json(msg_data, None) if msg_data else None
+
+                    update = Update(update_id=data['update_id'], message=message)
+                else:
+                    update = None
             if update is None:
                 print("ERROR: Failed to create update object")
                 self.set_status(400)
