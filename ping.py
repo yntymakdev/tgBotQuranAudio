@@ -857,12 +857,8 @@ class WebhookHandler(tornado.web.RequestHandler):
     def initialize(self, telegram_app):
         self.telegram_app = telegram_app
 
-    async def get(self):
-        """Обработка GET запроса (например, для проверки webhook)"""
-        self.write("GET запрос принят, используйте POST для webhook.")
-
     async def post(self):
-        """Обработка POST запроса для обработки webhook от Telegram"""
+        """Обработка webhook от Telegram"""
         try:
             # Получаем данные от Telegram
             update_data = json.loads(self.request.body.decode())
@@ -875,7 +871,6 @@ class WebhookHandler(tornado.web.RequestHandler):
         except Exception as e:
             print(f"Ошибка обработки webhook: {e}")
             self.write({"status": "error", "message": str(e)})
-
 def start(update, context):
     """Обработчик команды /start"""
     update.message.reply_text('Привет! Я бот для чтения Корана.')
@@ -908,14 +903,15 @@ def main(TOKEN='8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So'):
     web_app = tornado.web.Application([
         (r"/health", HealthHandler),
         (r"/ping", PingHandler),
-        (r"/", PingHandler),
-        (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),
+        (r"/webhook", WebhookHandler, dict(telegram_app=telegram_app)),
+        (r"/", PingHandler),  # Это можно оставить для проверки
+        (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),  # Обработка запросов с токеном
     ])
 
     # Запуск сервера
     web_app.listen(PORT)
     print(f"Сервер запущен на порту {PORT}")
-    print(f"Webhook URL: https://tgbotquranaudio-1.onrender.com/{TOKEN}")
+    print(f"Webhook URL: https://tgbotquranaudio-2.onrender.com/{TOKEN}")
 
     # Запуск event loop
     tornado.ioloop.IOLoop.current().start()
