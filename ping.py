@@ -857,40 +857,81 @@ class PingHandler(tornado.web.RequestHandler):
         self.write("pong")
 
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ошибок"""
+    print(f"Error occurred: {context.error}")
+    print(f"Update: {update}")
+
+    if update and update.message:
+        try:
+            await update.message.reply_text(
+                "⚠️ Произошла ошибка при обработке вашего запроса. Попробуйте еще раз."
+            )
+        except Exception as e:
+            print(f"Failed to send error message: {e}")
+
+
 class WebhookHandler(tornado.web.RequestHandler):
     def initialize(self, telegram_app):
         self.telegram_app = telegram_app
+        print(f"WebhookHandler initialized with telegram_app: {telegram_app}")
 
     async def post(self):
         """Обработка POST запросов от Telegram"""
+        print(f"POST request received to {self.request.uri}")
+        print(f"Headers: {self.request.headers}")
+        print(f"Body length: {len(self.request.body)}")
+
         try:
-            # Получаем данные из тела запроса
+            # Проверяем, что telegram_app существует
+            if not hasattr(self, 'telegram_app') or self.telegram_app is None:
+                print("ERROR: telegram_app is None!")
+                self.set_status(500)
+                self.write({"error": "telegram_app not initialized"})
+                return
+
             body = self.request.body
             if not body:
+                print("ERROR: Empty body received")
                 self.set_status(400)
                 self.write({"error": "Empty body"})
                 return
 
-            # Парсим JSON
-            data = json.loads(body.decode('utf-8'))
+            # Декодируем и парсим JSON
+            body_str = body.decode('utf-8')
+            print(f"Body content: {body_str}")
 
-            # Создаем объект Update из данных
+            data = json.loads(body_str)
+            print(f"Parsed JSON: {data}")
+
+            # Создаем Update объект
             update = Update.de_json(data, self.telegram_app.bot)
+            print(f"Created update object: {update}")
 
-            # Обрабатываем обновление через telegram приложение
+            if update is None:
+                print("ERROR: Failed to create update object")
+                self.set_status(400)
+                self.write({"error": "Invalid update format"})
+                return
+
+            # Обрабатываем update
+            print("Processing update...")
             await self.telegram_app.process_update(update)
+            print("Update processed successfully")
 
-            # Отвечаем Telegram что все OK
             self.set_status(200)
             self.write({"status": "ok"})
 
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error: {e}")
             self.set_status(400)
-            self.write({"error": "Invalid JSON"})
+            self.write({"error": f"Invalid JSON: {str(e)}"})
         except Exception as e:
             print(f"Error processing update: {e}")
+            import traceback
+            traceback.print_exc()
             self.set_status(500)
-            self.write({"error": "Internal server error"})
+            self.write({"error": f"Internal server error: {str(e)}"})
 
     def get(self):
         """Обработка GET запросов (для тестирования)"""
@@ -951,7 +992,7 @@ def main():
     # Запуск сервера
     web_app.listen(PORT)
     print(f"Сервер запущен на порту {PORT}")
-    print(f"Webhook URL: https://tgbotquranaudio-4.onrender.com/{TOKEN}")
+    print(f"Webhook URL: https://tgbotquranaudio-6.onrender.com/{TOKEN}")
 
     # Запуск tornado event loop
     tornado.ioloop.IOLoop.current().start()
