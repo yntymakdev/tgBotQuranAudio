@@ -938,17 +938,8 @@ class WebhookHandler(tornado.web.RequestHandler):
             print(f"Parsed JSON: {data}")
 
             # Создаем Update объект
-            # Проверяем структуру данных
-            print(f"Raw data keys: {data.keys()}")
-            if 'update_id' not in data:
-                print("ERROR: update_id missing in data!")
-                self.set_status(400)
-                self.write({"error": "update_id missing"})
-                return
 
-            # Создаем Update вручную
-            # Простое и надежное решение
-            update = Update.de_json(data, None)
+            update = Update.de_json(data, self.telegram_app.bot)
             print(f"Created update object: {update}")
 
             if update is None:
@@ -959,7 +950,6 @@ class WebhookHandler(tornado.web.RequestHandler):
 
             # Обрабатываем update
             print("Processing update...")
-
             await self.telegram_app.process_update(update)
             print("Update processed successfully")
 
@@ -1023,13 +1013,13 @@ def main():
         # (r"/", PingHandler),
         (r"/", WebhookHandler, {"telegram_app": telegram_app}),
 
-        # (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),
+        (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),
     ])
 
     # Запуск сервера
     web_app.listen(PORT)
     print(f"Сервер запущен на порту {PORT}")
-    print(f"Webhook URL: https://tgbotquranaudio-8.onrender.com/{TOKEN}")
+    print(f"Webhook URL: https://tgbotquranaudio-7.onrender.com/{TOKEN}")
 
     # Запуск tornado event loop
     tornado.ioloop.IOLoop.current().start()
