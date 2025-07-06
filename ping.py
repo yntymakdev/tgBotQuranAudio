@@ -19,6 +19,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from main import get_surahs, get_surah_ayahs,get_ayah,handle_text_ayah_request,start,show_main_menu,menu,help_command,show_search_help,show_surah_page,show_surah_ayahs,show_ayah,show_full_surah_page,normalize,search,handle_button
 
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Определение временной зоны
 timezone = pytz.timezone("Asia/Bishkek")  # Замените на вашу временную зону, если необходимо
@@ -852,7 +855,6 @@ class PingHandler(tornado.web.RequestHandler):
     def get(self):
         self.write("pong")
 
-
 class WebhookHandler(tornado.web.RequestHandler):
     def initialize(self, telegram_app):
         self.telegram_app = telegram_app
@@ -860,16 +862,34 @@ class WebhookHandler(tornado.web.RequestHandler):
     async def post(self):
         """Обработка webhook от Telegram"""
         try:
+            # Добавьте в начало метода post():
+            print(f"Raw webhook data: {self.request.body.decode()}")
             # Получаем данные от Telegram
             update_data = json.loads(self.request.body.decode())
+            logger.info(f"Получены данные webhook: {update_data}")
+
+            # Создаем объект Update с правильной обработкой
             update = Update.de_json(update_data, self.telegram_app.bot)
 
-            # Обрабатываем обновление
+            if update is None:
+                logger.error("Не удалось создать объект Update")
+                self.set_status(400)
+                self.write({"status": "error", "message": "Invalid update data"})
+                return
+
+            # Обрабатываем обновление через Application
             await self.telegram_app.process_update(update)
 
             self.write({"status": "ok"})
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Ошибка парсинга JSON: {e}")
+            self.set_status(400)
+            self.write({"status": "error", "message": "Invalid JSON"})
+
         except Exception as e:
-            print(f"Ошибка обработки webhook: {e}")
+            logger.error(f"Ошибка обработки webhook: {e}")
+            self.set_status(500)
             self.write({"status": "error", "message": str(e)})
 def start(update, context):
     """Обработчик команды /start"""
@@ -911,7 +931,7 @@ def main(TOKEN='8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So'):
     # Запуск сервера
     web_app.listen(PORT)
     print(f"Сервер запущен на порту {PORT}")
-    print(f"Webhook URL: https://tgbotquranaudio-2.onrender.com/{TOKEN}")
+    print(f"Webhook URL: https://tgbotquranaudio-3.onrender.com/{TOKEN}")
 
     # Запуск event loop
     tornado.ioloop.IOLoop.current().start()
