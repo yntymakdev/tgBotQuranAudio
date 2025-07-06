@@ -1,27 +1,33 @@
 # 📦 Установи перед запуском:
-# pip install python-telegram-bot==13.15 requests
+# pip install python-telegram-bot requests python-dotenv
 import re
 import os
 import requests
+import asyncio
 from dotenv import load_dotenv
-from telegram.ext import MessageHandler, Filters
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
-from difflib import get_close_matches  # для поиска похожих
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telegram.constants import ParseMode
+from difflib import get_close_matches
+import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+
+# Определение временной зоны
+timezone = pytz.timezone("Asia/Bishkek")  # Замените на вашу временную зону, если необходимо
+
+# Инициализация планировщика с правильной временной зоной
+scheduler = AsyncIOScheduler(timezone=timezone)
+
 load_dotenv()
+
 # === Настройки ===
 TOKEN = os.getenv("TOKEN_TG")
 API_BASE = "https://api.alquran.cloud/v1"
-LANGUAGE_CODE = "ru.kuliev"  # Можно заменить на ky.osmonov если появится поддержка
+LANGUAGE_CODE = "ru.kuliev"
+WEBHOOK_URL = 'https://django-webhookbotislam-17.onrender.com/webhook/'  # Замени на свой публичный URL
 
-
-# === Получение списка сур ===
-def get_surahs():
-    try:
-        response = requests.get(f"{API_BASE}/surah")
-        return response.json()["data"]
-    except:
-        return []
+bot = Application.builder().token(TOKEN).build()
 SURA_OFFICIAL_NAMES = {
     1: "Аль-Фатиха",
     2: "Аль-Бакара",
@@ -138,7 +144,6 @@ SURA_OFFICIAL_NAMES = {
     113: "Аль-Фаляк",
     114: "Ан-Нас"
 }
-
 RUSSIAN_SURA_NAMES = {
     "фатиха": 1, "алфатиха": 1, "альфатиха": 1,
     "бакара": 2, "альбакара": 2,
@@ -217,115 +222,27 @@ RUSSIAN_SURA_NAMES = {
     "аннас": 114
 }
 
-def welcome_fallback(update: Update, context: CallbackContext):
-    text = (
-        "🕌 *Ассаламу алейкум!*\n"
-        "Добро пожаловать в *Quran Audio Bot*! 📖✨\n\n"
-        "🎯 *Что умеет этот бот:*\n"
-        "• 🎧 Слушай аяты Корана\n"
-        "• 📚 Читай переводы\n"
-        "• 🔍 Ищи по словам или номерам\n\n"
-        "🧠 *Как искать аят:*\n"
-        "Напиши, например:\n"
-        "• \\`Сура Аль\\-Бакара аят 255\\`\n"
-        "• \\`2:255\\`\n"
-        "• \\`36\\-58\\`\n\n"
-        "И получишь нужный аят, перевод и аудио! 🎧\n\n"
-        "🚀 *Выберите действие ниже:*"
-    )
+# === Получение списка сур ===
+async def get_surahs():
+    try:
+        response = requests.get(f"{API_BASE}/surah")
+        return response.json()["data"]
+    except:
+        return []
 
-    update.message.reply_text(
-        text,
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
 
 # === Получение аятов и перевода ===
-def get_surah_ayahs(surah_number):
+async def get_surah_ayahs(surah_number):
     try:
         ar_resp = requests.get(f"{API_BASE}/surah/{surah_number}/ar.alafasy").json()
         tr_resp = requests.get(f"{API_BASE}/surah/{surah_number}/{LANGUAGE_CODE}").json()
         return ar_resp["data"]["ayahs"], tr_resp["data"]["ayahs"]
     except:
         return [], []
-def handle_text_ayah_request(update, context):
-        text = update.message.text.lower().strip()
-
-        # Формат: 10:3 или 10-3
-        colon_match = re.match(r"(\d{1,3})[:\-](\d+)", text)
-
-        if colon_match:
-            surah_num = int(colon_match.group(1))
-            ayah_num = int(colon_match.group(2))
-
-            _, tr_ayahs = get_surah_ayahs(surah_num)
-            total_ayahs = len(tr_ayahs)
-
-            if ayah_num <= 0 or ayah_num > total_ayahs:
-                update.message.reply_text(f"❌ В суре {surah_num} нет аята {ayah_num}.")
-                return
-
-            ayah_data = get_ayah(surah_num, ayah_num)
-            if not ayah_data or not isinstance(ayah_data, dict):
-                update.message.reply_text("❌ Ошибка при получении аята.")
-                return
-
-            translation = tr_ayahs[ayah_num - 1]['text'] if ayah_num <= total_ayahs else ""
-
-            update.message.reply_text(
-                f"📖 *Сура {surah_num}, Аят {ayah_num}*\n\n"
-                f"🗌 {ayah_data['text']}\n\n"
-                f"📘 Перевод: _{translation}_",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            update.message.reply_audio(
-                audio=ayah_data["audio"],
-                title=f"Сура {surah_num}, Аят {ayah_num}"
-            )
-            return
-
-        # Формат: Сура Аль-Бакара аят 8
-        match = re.search(r"сура ([а-яёa-z\- ]+) аят (\d+)", text)
-        if match:
-            sura_name = match.group(1).strip().replace("аль", "").replace(" ", "")
-            ayah_num = int(match.group(2))
-
-            surah_num = RUSSIAN_SURA_NAMES.get(sura_name)
-            if not surah_num:
-                update.message.reply_text("❌ Сура не найдена. Попробуйте написать точнее.")
-                return
-
-            _, tr_ayahs = get_surah_ayahs(surah_num)
-
-            if ayah_num <= 0 or ayah_num > len(tr_ayahs):
-                update.message.reply_text(
-                    f"❌ В суре №{surah_num} нет аята под номером {ayah_num}."
-                )
-                return
-
-            ayah_data = get_ayah(surah_num, ayah_num)
-            if not ayah_data:
-                update.message.reply_text("❌ Аят не найден.")
-                return
-
-            translation = tr_ayahs[ayah_num - 1]['text']
-
-            update.message.reply_text(
-                f"📖 *Сура {surah_num}, Аят {ayah_num}*\n\n"
-                f"🗌 {ayah_data['text']}\n\n"
-                f"📘 Перевод: _{translation}_",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            update.message.reply_audio(
-                audio=ayah_data["audio"],
-                title=f"Сура {surah_num}, Аят {ayah_num}"
-            )
-            return
-
-        update.message.reply_text("🔍 Введите запрос в формате:  `2:255`", parse_mode=ParseMode.MARKDOWN)
 
 
 # === Получение одного аята ===
-def get_ayah(surah, ayah):
+async def get_ayah(surah, ayah):
     try:
         resp = requests.get(f"{API_BASE}/ayah/{surah}:{ayah}/ar.alafasy").json()
         if resp.get("status") == "OK":
@@ -336,20 +253,98 @@ def get_ayah(surah, ayah):
         return None
 
 
+# === Обработка текстовых запросов аятов ===
+async def handle_text_ayah_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.lower().strip()
+
+    # Формат: 10:3 или 10-3
+    colon_match = re.match(r"(\d{1,3})[:\-](\d+)", text)
+
+    if colon_match:
+        surah_num = int(colon_match.group(1))
+        ayah_num = int(colon_match.group(2))
+
+        _, tr_ayahs = await get_surah_ayahs(surah_num)
+        total_ayahs = len(tr_ayahs)
+
+        if ayah_num <= 0 or ayah_num > total_ayahs:
+            await update.message.reply_text(f"❌ В суре {surah_num} нет аята {ayah_num}.")
+            return
+
+        ayah_data = await get_ayah(surah_num, ayah_num)
+        if not ayah_data or not isinstance(ayah_data, dict):
+            await update.message.reply_text("❌ Ошибка при получении аята.")
+            return
+
+        translation = tr_ayahs[ayah_num - 1]['text'] if ayah_num <= total_ayahs else ""
+
+        await update.message.reply_text(
+            f"📖 *Сура {surah_num}, Аят {ayah_num}*\n\n"
+            f"🗌 {ayah_data['text']}\n\n"
+            f"📘 Перевод: _{translation}_",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        await update.message.reply_audio(
+            audio=ayah_data["audio"],
+            title=f"Сура {surah_num}, Аят {ayah_num}"
+        )
+        return
+
+    # Формат: Сура Аль-Бакара аят 8
+    match = re.search(r"сура ([а-яёa-z\- ]+) аят (\d+)", text)
+    if match:
+        sura_name = match.group(1).strip().replace("аль", "").replace(" ", "")
+        ayah_num = int(match.group(2))
+
+        surah_num = RUSSIAN_SURA_NAMES.get(sura_name)
+        if not surah_num:
+            await update.message.reply_text("❌ Сура не найдена. Попробуйте написать точнее.")
+            return
+
+        _, tr_ayahs = await get_surah_ayahs(surah_num)
+
+        if ayah_num <= 0 or ayah_num > len(tr_ayahs):
+            await update.message.reply_text(
+                f"❌ В суре №{surah_num} нет аята под номером {ayah_num}."
+            )
+            return
+
+        ayah_data = await get_ayah(surah_num, ayah_num)
+        if not ayah_data:
+            await update.message.reply_text("❌ Аят не найден.")
+            return
+
+        translation = tr_ayahs[ayah_num - 1]['text']
+
+        await update.message.reply_text(
+            f"📖 *Сура {surah_num}, Аят {ayah_num}*\n\n"
+            f"🗌 {ayah_data['text']}\n\n"
+            f"📘 Перевод: _{translation}_",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        await update.message.reply_audio(
+            audio=ayah_data["audio"],
+            title=f"Сура {surah_num}, Аят {ayah_num}"
+        )
+        return
+
+    await update.message.reply_text("🔍 Введите запрос в формате: `2:255`", parse_mode=ParseMode.MARKDOWN)
+
+
 # === Команда /start ===
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-    "🕌 *Ассаламу алейкум!*\n"
-    "Добро пожаловать в *Quran Audio Bot*! 📖✨\n\n"
-    "🎯 *Что умеет этот бот:*\n"
-    "• 🎧 Слушай аяты Корана\n"
-    "• 📚 Читай переводы\n"
-    "• 🔍 Ищи по названием или номерам\n\n"
-    "🧠 *Как искать аят:*\n"
-    "Напиши, например:\n"
-    "• \\`2:255\\`\n"
-    "И получишь нужный аят, перевод и аудио! 🎧\n\n"
-    "🚀 *Выберите действие ниже:*"
+        "🕌 *Ассаламу алейкум!*\n"
+        "Добро пожаловать в *Quran Audio Bot*! 📖✨\n\n"
+        "🎯 *Что умеет этот бот:*\n"
+        "• 🎧 Слушай аяты Корана\n"
+        "• 📚 Читай переводы\n"
+        "• 🔍 Ищи по названием или номерам\n\n"
+        "🧠 *Как искать аят:*\n"
+        "Напиши, например:\n"
+        "• `2:255`\n"
+        "И получишь нужный аят, перевод и аудио! 🎧\n\n"
+        "🚀 *Выберите действие ниже:*"
     )
 
     keyboard = [
@@ -358,7 +353,7 @@ def start(update: Update, context: CallbackContext):
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
     ]
 
-    update.message.reply_text(
+    await update.message.reply_text(
         welcome_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
@@ -366,7 +361,7 @@ def start(update: Update, context: CallbackContext):
 
 
 # === Главное меню ===
-def show_main_menu(query):
+async def show_main_menu(query):
     welcome_text = (
         "🕌 *Главное меню*\n\n"
         "🎯 *Выберите действие:*"
@@ -378,7 +373,7 @@ def show_main_menu(query):
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
     ]
 
-    query.edit_message_text(
+    await query.edit_message_text(
         welcome_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
@@ -386,7 +381,7 @@ def show_main_menu(query):
 
 
 # === Команда /menu ===
-def menu(update: Update, context: CallbackContext):
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "🕌 *Главное меню*\n\n"
         "🎯 *Выберите действие:*"
@@ -398,7 +393,7 @@ def menu(update: Update, context: CallbackContext):
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
     ]
 
-    update.message.reply_text(
+    await update.message.reply_text(
         welcome_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
@@ -406,7 +401,7 @@ def menu(update: Update, context: CallbackContext):
 
 
 # === Команда /help ===
-def help_command(update: Update, context: CallbackContext):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "📋 *Подробная инструкция:*\n\n"
         "🚀 *Основные команды:*\n"
@@ -429,7 +424,7 @@ def help_command(update: Update, context: CallbackContext):
         [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
     ]
 
-    update.message.reply_text(
+    await update.message.reply_text(
         help_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
@@ -437,7 +432,7 @@ def help_command(update: Update, context: CallbackContext):
 
 
 # === Помощь по поиску ===
-def show_search_help(query):
+async def show_search_help(query):
     help_text = (
         "🔍 *Как использовать поиск:*\n\n"
         "📝 *Способы поиска:*\n"
@@ -452,7 +447,7 @@ def show_search_help(query):
         [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
     ]
 
-    query.edit_message_text(
+    await query.edit_message_text(
         help_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
@@ -460,10 +455,10 @@ def show_search_help(query):
 
 
 # === Вывод страницы с сурами ===
-def show_surah_page(query, page):
-    surahs = get_surahs()
+async def show_surah_page(query, page):
+    surahs = await get_surahs()
     if not surahs:
-        query.edit_message_text("❌ Ошибка загрузки сур. Попробуйте позже.")
+        await query.edit_message_text("❌ Ошибка загрузки сур. Попробуйте позже.")
         return
 
     page_size = 15
@@ -474,7 +469,6 @@ def show_surah_page(query, page):
     keyboard = []
 
     for s in surahs[start_idx:end_idx]:
-        # Красивое оформление кнопок сур
         btn_text = f"📖 {s['number']}. {s['englishName']}"
         if len(btn_text) > 30:
             btn_text = btn_text[:27] + "..."
@@ -492,10 +486,9 @@ def show_surah_page(query, page):
     if nav_buttons:
         keyboard.append(nav_buttons)
 
-    # Кнопка в главное меню
     keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")])
 
-    query.edit_message_text(
+    await query.edit_message_text(
         text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
@@ -503,14 +496,14 @@ def show_surah_page(query, page):
 
 
 # === Показ аятов суры ===
-def show_surah_ayahs(query, surah_num, page=0):
-    ar_ayahs, tr_ayahs = get_surah_ayahs(surah_num)
+async def show_surah_ayahs(query, surah_num, page=0):
+    ar_ayahs, tr_ayahs = await get_surah_ayahs(surah_num)
 
     if not ar_ayahs:
-        query.edit_message_text("❌ Ошибка загрузки аятов. Попробуйте позже.")
+        await query.edit_message_text("❌ Ошибка загрузки аятов. Попробуйте позже.")
         return
 
-    surahs = get_surahs()
+    surahs = await get_surahs()
     surah_name = next((s['englishName'] for s in surahs if s['number'] == surah_num), f"Сура {surah_num}")
 
     page_size = 15
@@ -538,15 +531,13 @@ def show_surah_ayahs(query, surah_num, page=0):
     if nav_buttons:
         keyboard.append(nav_buttons)
 
-    # Кнопки навигации
     keyboard.append([
         InlineKeyboardButton("📚 К сурам", callback_data="show_surahs_0"),
         InlineKeyboardButton("📝 Читать всю суру", callback_data=f"surah_full_{surah_num}_0"),
         InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")
-
     ])
 
-    query.edit_message_text(
+    await query.edit_message_text(
         text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
@@ -554,30 +545,28 @@ def show_surah_ayahs(query, surah_num, page=0):
 
 
 # === Показ аята ===
-def show_ayah(query, surah_num, ayah_num):
-    ayah_data = get_ayah(surah_num, ayah_num)
+async def show_ayah(query, surah_num, ayah_num):
+    ayah_data = await get_ayah(surah_num, ayah_num)
 
     if not ayah_data:
-        query.answer("❌ Ошибка загрузки аята")
+        await query.answer("❌ Ошибка загрузки аята")
         return
 
     # Получаем перевод
-    _, tr_ayahs = get_surah_ayahs(surah_num)
+    _, tr_ayahs = await get_surah_ayahs(surah_num)
     translation = ""
     if tr_ayahs and len(tr_ayahs) >= ayah_num:
         translation = tr_ayahs[ayah_num - 1]["text"]
 
     # Получаем информацию о суре
-    surahs = get_surahs()
+    surahs = await get_surahs()
     surah_name = next((s['englishName'] for s in surahs if s['number'] == surah_num), f"Сура {surah_num}")
 
-    # Текст сообщения
     text = f"📖 *{surah_name}*\n"
     text += f"🔹 *Аят {ayah_num}*\n\n"
     text += f"📝 *Перевод:*\n_{translation}_\n\n"
     text += f"🎧 *Аудио отправляется...*"
 
-    # Кнопки навигации
     keyboard = [
         [InlineKeyboardButton("↩️ К аятам суры", callback_data=f"surah_{surah_num}")],
         [InlineKeyboardButton("📚 К сурам", callback_data="show_surahs_0")],
@@ -586,7 +575,7 @@ def show_ayah(query, surah_num, ayah_num):
 
     # Отправляем аудио
     try:
-        query.message.reply_audio(
+        await query.message.reply_audio(
             audio=ayah_data["audio"],
             title=f"Аят {ayah_num} - {surah_name}",
             caption=f"🎧 *Аят {ayah_num}* из суры *{surah_name}*",
@@ -596,22 +585,20 @@ def show_ayah(query, surah_num, ayah_num):
         print(f"Ошибка отправки аудио: {e}")
 
     # Отправляем текст с переводом
-    query.message.reply_text(
+    await query.message.reply_text(
         text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode=ParseMode.MARKDOWN
     )
-    # Отправить аудио всей суры автоматически
+
+    # Отправляем аудио всей суры
     bitrate = 128
     edition = "ar.alafasy"
     surah_str = str(surah_num)
     audio_url = f"https://cdn.islamic.network/quran/audio-surah/{bitrate}/{edition}/{surah_str}.mp3"
 
-    surahs = get_surahs()
-    surah_name = next((s['englishName'] for s in surahs if s['number'] == surah_num), f"Сура {surah_num}")
-
     try:
-        query.message.reply_audio(
+        await query.message.reply_audio(
             audio=audio_url,
             title=f"Сура {surah_name}",
             caption=f"🎧 Аудио полной суры *{surah_name}*",
@@ -621,181 +608,21 @@ def show_ayah(query, surah_num, ayah_num):
         print(f"Ошибка отправки аудио полной суры: {e}")
 
 
-# === Обработка кнопок ===
-def handle_button(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query.answer()
-    data = query.data
-
-    try:
-        if data == "main_menu":
-            show_main_menu(query)
-
-        elif data == "help":
-            help_text = (
-                "📋 *Подробная инструкция:*\n\n"
-                "🚀 *Основные команды:*\n"
-                "• /start - запуск бота\n"
-                "• /menu - главное меню\n"
-                "• /help - эта справка\n"
-                "• /search [слово] - поиск по переводу\n\n"
-                "📖 *Как пользоваться:*\n"
-                "1️⃣ Выберите суру из списка\n"
-                "2️⃣ Выберите нужный аят\n"
-                "3️⃣ Получите аудио и перевод\n"
-                "4️⃣ Используйте кнопки для навигации\n\n"
-                "🔍 *Поиск:*\n"
-                "Введите /search и слово для поиска\n"
-                "Пример: /search милость\n\n"
-                "💡 *Совет:* Используйте кнопки для удобной навигации!"
-            )
-
-            keyboard = [
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
-            ]
-
-            query.edit_message_text(
-                help_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.MARKDOWN
-            )
-
-        elif data == "search_help":
-            show_search_help(query)
-
-        elif data == "start_search":
-            query.edit_message_text(
-                "🔍 *Поиск по Корану*\n\n"
-                "📝 Введите команду и слово для поиска:\n"
-                "`/search [ваше слово]`\n\n"
-                "💡 *Пример:* /search милость",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
-                ]),
-                parse_mode=ParseMode.MARKDOWN
-            )
-
-        elif data.startswith("show_surahs_"):
-            page = int(data.split("_")[2])
-            show_surah_page(query, page)
-
-        elif data.startswith("surah_page_"):
-            parts = data.split("_")
-            surah_num = int(parts[2])
-            page = int(parts[3])
-            show_surah_ayahs(query, surah_num, page)
-        elif data.startswith("surah_full_"):
-            parts = data.split("_")
-            surah_num = int(parts[2])
-            page = int(parts[3])
-            show_full_surah_page(update.callback_query, surah_num, page)
-
-        elif data.startswith("surah_"):
-            surah_num = int(data.split("_")[1])
-            show_surah_ayahs(query, surah_num)
-
-        elif data.startswith("ayah_"):
-            parts = data.split("_")
-            surah_num = int(parts[1])
-            ayah_num = int(parts[2])
-            show_ayah(query, surah_num, ayah_num)
-
-    except Exception as e:
-        print(f"Ошибка обработки кнопки: {e}")
-        query.edit_message_text(
-            "❌ Произошла ошибка. Попробуйте снова.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
-            ])
-        )
-
-def normalize(text):
-    text = text.lower()
-    text = re.sub(r"[ьъ\-]", "", text)
-    text = text.replace("аль", "")
-    text = re.sub(r"\s+", "", text)
-    return text
-# === Поиск по переводу ===
-def search(update: Update, context: CallbackContext):
-    if not context.args:
-        update.message.reply_text(
-            "🔍 Введите название суры после команды /search",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    input_text = ' '.join(context.args)
-    normalized_input = normalize(input_text)
-
-    # Ищем все совпадения по подстроке
-    matches = [(name, num) for name, num in RUSSIAN_SURA_NAMES.items() if normalized_input in name]
-
-    # Удаляем повторы по номеру суры (чтобы не было 3х "Аль-Фатиха")
-    unique_matches = {}
-    for name, num in matches:
-        if num not in unique_matches:
-            unique_matches[num] = name
-
-    if unique_matches:
-        text = f"🔍 Найдено {len(unique_matches)} совпадений для \"{input_text}\":\n\n"
-        keyboard = []
-        for num, name in list(unique_matches.items())[:10]:
-            official_name = SURA_OFFICIAL_NAMES.get(num, name.title())
-            text += f"• {official_name}\n"
-            keyboard.append([InlineKeyboardButton(official_name, callback_data=f"surah_{num}")])
-
-        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")])
-
-        update.message.reply_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    # Если совпадений нет — ищем похожие названия (подсказки)
-    close_matches = get_close_matches(normalized_input, RUSSIAN_SURA_NAMES.keys(), n=5, cutoff=0.5)
-
-    if close_matches:
-        text = f"🔍 Точных совпадений не найдено. Возможно, вы имели в виду:\n\n"
-        keyboard = []
-        shown = set()
-        for name in close_matches:
-            num = RUSSIAN_SURA_NAMES[name]
-            if num in shown:
-                continue  # пропустить повтор
-            shown.add(num)
-            official_name = SURA_OFFICIAL_NAMES.get(num, name.title())
-            text += f"• {official_name}\n"
-            keyboard.append([InlineKeyboardButton(official_name, callback_data=f"surah_{num}")])
-
-        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")])
-
-        update.message.reply_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        update.message.reply_text(
-            f"❌ По запросу \"{input_text}\" ничего не найдено и похожих вариантов нет.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-def show_full_surah_page(query, surah_num, page):
-    ar_ayahs, tr_ayahs = get_surah_ayahs(surah_num)
+# === Показ полной суры ===
+async def show_full_surah_page(query, surah_num, page):
+    ar_ayahs, tr_ayahs = await get_surah_ayahs(surah_num)
     if not ar_ayahs or not tr_ayahs:
-        query.edit_message_text("❌ Не удалось загрузить суру. Попробуйте позже.")
+        await query.edit_message_text("❌ Не удалось загрузить суру. Попробуйте позже.")
         return
 
     page_size = 5
     start = page * page_size
     end = start + page_size
 
-    surahs = get_surahs()
+    surahs = await get_surahs()
     surah_name = next((s['englishName'] for s in surahs if s['number'] == surah_num), f"Сура {surah_num}")
 
-    text = f"📖 *{surah_name}* — аяты {start+1}–{min(end, len(ar_ayahs))}\n\n"
+    text = f"📖 *{surah_name}* — аяты {start + 1}–{min(end, len(ar_ayahs))}\n\n"
 
     for i in range(start, min(end, len(ar_ayahs))):
         ar = ar_ayahs[i]
@@ -821,35 +648,218 @@ def show_full_surah_page(query, surah_num, page):
         InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")
     ])
 
-    query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
     if page == 0:
-       bitrate = 128
-       edition = "ar.alafasy"
-       audio_url = f"https://cdn.islamic.network/quran/audio-surah/{bitrate}/{edition}/{surah_num}.mp3"
-    try:
-        query.message.reply_audio(
-            audio=audio_url,
-            title=f"Сура {surah_name}",
-            caption=f"🎧 Аудио полной суры *{surah_name}*",
+        bitrate = 128
+        edition = "ar.alafasy"
+        audio_url = f"https://cdn.islamic.network/quran/audio-surah/{bitrate}/{edition}/{surah_num}.mp3"
+
+        try:
+            await query.message.reply_audio(
+                audio=audio_url,
+                title=f"Сура {surah_name}",
+                caption=f"🎧 Аудио полной суры *{surah_name}*",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            print(f"Ошибка при отправке полного аудио суры: {e}")
+
+
+# === Нормализация текста ===
+def normalize(text):
+    text = text.lower()
+    text = re.sub(r"[ьъ\-]", "", text)
+    text = text.replace("аль", "")
+    text = re.sub(r"\s+", "", text)
+    return text
+
+
+# === Поиск по переводу ===
+async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "🔍 Введите название суры после команды /search",
             parse_mode=ParseMode.MARKDOWN
         )
-    except Exception as e:
-        print(f"Ошибка при отправке полного аудио суры: {e}")
-def main():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
+        return
 
-    # Регистрируем обработчики
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("menu", menu))
-    dp.add_handler(CommandHandler("help", help_command))
-    dp.add_handler(CommandHandler("search", search))
-    dp.add_handler(CallbackQueryHandler(handle_button))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text_ayah_request))
+    input_text = ' '.join(context.args)
+    normalized_input = normalize(input_text)
+
+    # Ищем все совпадения по подстроке
+    matches = [(name, num) for name, num in RUSSIAN_SURA_NAMES.items() if normalized_input in name]
+
+    # Удаляем повторы по номеру суры
+    unique_matches = {}
+    for name, num in matches:
+        if num not in unique_matches:
+            unique_matches[num] = name
+
+    if unique_matches:
+        text = f"🔍 Найдено {len(unique_matches)} совпадений для \"{input_text}\":\n\n"
+        keyboard = []
+        for num, name in list(unique_matches.items())[:10]:
+            official_name = SURA_OFFICIAL_NAMES.get(num, name.title())
+            text += f"• {official_name}\n"
+            keyboard.append([InlineKeyboardButton(official_name, callback_data=f"surah_{num}")])
+
+        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")])
+
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    # Поиск похожих названий
+    close_matches = get_close_matches(normalized_input, RUSSIAN_SURA_NAMES.keys(), n=5, cutoff=0.5)
+
+    if close_matches:
+        text = f"🔍 Точных совпадений не найдено. Возможно, вы имели в виду:\n\n"
+        keyboard = []
+        shown = set()
+        for name in close_matches:
+            num = RUSSIAN_SURA_NAMES[name]
+            if num in shown:
+                continue
+            shown.add(num)
+            official_name = SURA_OFFICIAL_NAMES.get(num, name.title())
+            text += f"• {official_name}\n"
+            keyboard.append([InlineKeyboardButton(official_name, callback_data=f"surah_{num}")])
+
+        keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")])
+
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text(
+            f"❌ По запросу \"{input_text}\" ничего не найдено и похожих вариантов нет.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+
+# === Обработка кнопок ===
+async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    try:
+        if data == "main_menu":
+            await show_main_menu(query)
+
+        elif data == "help":
+            help_text = (
+                "📋 *Подробная инструкция:*\n\n"
+                "🚀 *Основные команды:*\n"
+                "• /start - запуск бота\n"
+                "• /menu - главное меню\n"
+                "• /help - эта справка\n"
+                "• /search [слово] - поиск по переводу\n\n"
+                "📖 *Как пользоваться:*\n"
+                "1️⃣ Выберите суру из списка\n"
+                "2️⃣ Выберите нужный аят\n"
+                "3️⃣ Получите аудио и перевод\n"
+                "4️⃣ Используйте кнопки для навигации\n\n"
+                "🔍 *Поиск:*\n"
+                "Введите /search и слово для поиска\n"
+                "Пример: /search милость\n\n"
+                "💡 *Совет:* Используйте кнопки для удобной навигации!"
+            )
+
+            keyboard = [
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
+            ]
+
+            await query.edit_message_text(
+                help_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data == "search_help":
+            await show_search_help(query)
+
+        elif data == "start_search":
+            await query.edit_message_text(
+                "🔍 *Поиск по Корану*\n\n"
+                "📝 Введите команду и слово для поиска:\n"
+                "`/search [ваше слово]`\n\n"
+                "💡 *Пример:* /search милость",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
+                ]),
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data.startswith("show_surahs_"):
+            page = int(data.split("_")[2])
+            await show_surah_page(query, page)
+
+        elif data.startswith("surah_page_"):
+            parts = data.split("_")
+            surah_num = int(parts[2])
+            page = int(parts[3])
+            await show_surah_ayahs(query, surah_num, page)
+
+        elif data.startswith("surah_full_"):
+            parts = data.split("_")
+            surah_num = int(parts[2])
+            page = int(parts[3])
+            await show_full_surah_page(query, surah_num, page)
+
+        elif data.startswith("surah_"):
+            surah_num = int(data.split("_")[1])
+            await show_surah_ayahs(query, surah_num)
+
+        elif data.startswith("ayah_"):
+            parts = data.split("_")
+            surah_num = int(parts[1])
+            ayah_num = int(parts[2])
+            await show_ayah(query, surah_num, ayah_num)
+
+    except Exception as e:
+        print(f"Ошибка обработки кнопки: {e}")
+        await query.edit_message_text(
+            "❌ Произошла ошибка. Попробуйте снова.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
+            ])
+        )
+
+
+def main():
+    app = Application.builder().token(TOKEN).build()
+
+    # Добавление обработчиков
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", menu))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("search", search))
+    app.add_handler(CallbackQueryHandler(handle_button))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_ayah_request))
 
     print("🤖 Бот запущен!")
-    updater.start_polling()
-    updater.idle()
+
+    # ПРАВИЛЬНЫЙ способ для webhook
+    port = int(os.environ.get("PORT", 5000))
+
+    # Запуск webhook сервера (это автоматически установит webhook)
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path="webhook",
+        webhook_url=WEBHOOK_URL  # Добавьте эту строку!
+    )
 
 
 if __name__ == '__main__':
