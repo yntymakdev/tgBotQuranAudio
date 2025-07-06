@@ -888,7 +888,7 @@ def echo(update, context):
 def main(TOKEN='8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So'):
     app = Application.builder().token(TOKEN).build()
     TOKEN = "8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So"
-    PORT = int(os.environ.get('PORT', 8443))
+    PORT = int(os.environ.get('PORT', 8000))
 
     # Создаем Telegram приложение
     telegram_app = Application.builder().token(TOKEN).build()
