@@ -948,30 +948,9 @@ class WebhookHandler(tornado.web.RequestHandler):
 
             # Создаем Update вручную
             # Простое и надежное решение
-            try:
-                update = Update.de_json(data, None)
+            update = Update.de_json(data, None)
+            print(f"Created update object: {update}")
 
-                # Дополнительная проверка
-                if update and update.message:
-                    print(f"Message created successfully: {update.message}")
-
-            except Exception as e:
-                print(f"Error with de_json: {e}")
-                # Создаем вручную, но правильно
-                from telegram import Message, User, Chat
-
-                if 'message' in data:
-                    msg_data = data['message']
-                    user_data = msg_data.get('from', {})
-                    chat_data = msg_data.get('chat', {})
-
-                    user = User.de_json(user_data, None) if user_data else None
-                    chat = Chat.de_json(chat_data, None) if chat_data else None
-                    message = Message.de_json(msg_data, None) if msg_data else None
-
-                    update = Update(update_id=data['update_id'], message=message)
-                else:
-                    update = None
             if update is None:
                 print("ERROR: Failed to create update object")
                 self.set_status(400)
@@ -1043,7 +1022,7 @@ def main():
         # (r"/", PingHandler),
         (r"/", WebhookHandler, {"telegram_app": telegram_app}),
 
-        (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),
+        # (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),
     ])
 
     # Запуск сервера
