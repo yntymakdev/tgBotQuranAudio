@@ -959,6 +959,7 @@ class WebhookHandler(tornado.web.RequestHandler):
 
             # Обрабатываем update
             print("Processing update...")
+
             await self.telegram_app.process_update(update)
             print("Update processed successfully")
 
@@ -1028,7 +1029,7 @@ def main():
     # Запуск сервера
     web_app.listen(PORT)
     print(f"Сервер запущен на порту {PORT}")
-    print(f"Webhook URL: https://tgbotquranaudio-7.onrender.com/{TOKEN}")
+    print(f"Webhook URL: https://tgbotquranaudio-8.onrender.com/{TOKEN}")
 
     # Запуск tornado event loop
     tornado.ioloop.IOLoop.current().start()
