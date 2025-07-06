@@ -16,6 +16,7 @@ from telegram.constants import ParseMode
 from difflib import get_close_matches
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from tornado.platform.asyncio import AsyncIOMainLoop
 
 from main import get_surahs, get_surah_ayahs,get_ayah,handle_text_ayah_request,start,show_main_menu,menu,help_command,show_search_help,show_surah_page,show_surah_ayahs,show_ayah,show_full_surah_page,normalize,search,handle_button
 
@@ -855,42 +856,47 @@ class PingHandler(tornado.web.RequestHandler):
     def get(self):
         self.write("pong")
 
+
 class WebhookHandler(tornado.web.RequestHandler):
     def initialize(self, telegram_app):
         self.telegram_app = telegram_app
 
     async def post(self):
-        """Обработка webhook от Telegram"""
+        """Обработка POST запросов от Telegram"""
         try:
-            # Добавьте в начало метода post():
-            print(f"Raw webhook data: {self.request.body.decode()}")
-            # Получаем данные от Telegram
-            update_data = json.loads(self.request.body.decode())
-            logger.info(f"Получены данные webhook: {update_data}")
-
-            # Создаем объект Update с правильной обработкой
-            update = Update.de_json(update_data, self.telegram_app.bot)
-
-            if update is None:
-                logger.error("Не удалось создать объект Update")
+            # Получаем данные из тела запроса
+            body = self.request.body
+            if not body:
                 self.set_status(400)
-                self.write({"status": "error", "message": "Invalid update data"})
+                self.write({"error": "Empty body"})
                 return
 
-            # Обрабатываем обновление через Application
+            # Парсим JSON
+            data = json.loads(body.decode('utf-8'))
+
+            # Создаем объект Update из данных
+            update = Update.de_json(data, self.telegram_app.bot)
+
+            # Обрабатываем обновление через telegram приложение
             await self.telegram_app.process_update(update)
 
+            # Отвечаем Telegram что все OK
+            self.set_status(200)
             self.write({"status": "ok"})
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Ошибка парсинга JSON: {e}")
+        except json.JSONDecodeError:
             self.set_status(400)
-            self.write({"status": "error", "message": "Invalid JSON"})
-
+            self.write({"error": "Invalid JSON"})
         except Exception as e:
-            logger.error(f"Ошибка обработки webhook: {e}")
+            print(f"Error processing update: {e}")
             self.set_status(500)
-            self.write({"status": "error", "message": str(e)})
+            self.write({"error": "Internal server error"})
+
+    def get(self):
+        """Обработка GET запросов (для тестирования)"""
+        self.write({"status": "Webhook is working", "method": "GET"})
+
+
 def start(update, context):
     """Обработчик команды /start"""
     update.message.reply_text('Привет! Я бот для чтения Корана.')
@@ -901,34 +907,45 @@ def echo(update, context):
     update.message.reply_text(f"Вы написали: {update.message.text}")
 
 
-def main(TOKEN='8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So'):
-    app = Application.builder().token(TOKEN).build()
+def main():
     TOKEN = "8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So"
     PORT = int(os.environ.get('PORT', 8000))
 
+    # Настраиваем asyncio для работы с tornado
+    asyncio.set_event_loop_policy(
+        asyncio.WindowsSelectorEventLoopPolicy() if os.name == 'nt' else asyncio.DefaultEventLoopPolicy())
+
+    # Создаем новый event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     # Создаем Telegram приложение
     telegram_app = Application.builder().token(TOKEN).build()
-    asyncio.run(telegram_app.initialize())
+
+    # Инициализируем приложение асинхронно
+    async def init_app():
+        await telegram_app.initialize()
+        await telegram_app.start()
+
+    # Запускаем инициализацию в event loop
+    loop.run_until_complete(init_app())
 
     # Добавляем обработчики
-    # telegram_app.add_handler(CommandHandler("start", start))
-    # telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("menu", menu))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("search", search))
-    app.add_handler(CallbackQueryHandler(handle_button))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_ayah_request))
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("menu", menu))
+    telegram_app.add_handler(CommandHandler("help", help_command))
+    telegram_app.add_handler(CommandHandler("search", search))
+    telegram_app.add_handler(CallbackQueryHandler(handle_button))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_ayah_request))
 
     # Создаем веб-приложение
     web_app = tornado.web.Application([
         (r"/health", HealthHandler),
         (r"/ping", PingHandler),
-        (r"/", PingHandler),
-        # Основной webhook маршрут
         (r"/webhook", WebhookHandler, {"telegram_app": telegram_app}),
-        # Webhook с токеном (более безопасный вариант)
-        (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),  # Обработка запросов с токеном
+        (r"/webhook/", WebhookHandler, {"telegram_app": telegram_app}),
+        (r"/", PingHandler),
+        (rf"/{TOKEN}", WebhookHandler, {"telegram_app": telegram_app}),
     ])
 
     # Запуск сервера
@@ -936,7 +953,7 @@ def main(TOKEN='8072816097:AAGhI2SLAHbmKpVPhIOHvaIrKT0RiJ5f1So'):
     print(f"Сервер запущен на порту {PORT}")
     print(f"Webhook URL: https://tgbotquranaudio-4.onrender.com/{TOKEN}")
 
-    # Запуск event loop
+    # Запуск tornado event loop
     tornado.ioloop.IOLoop.current().start()
 
 
