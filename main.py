@@ -25,7 +25,7 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN_TG")
 API_BASE = "https://api.alquran.cloud/v1"
 LANGUAGE_CODE = "ru.kuliev"
-WEBHOOK_URL = 'https://django-webhookbotislam-17.onrender.com/webhook/'  # Замени на свой публичный URL
+WEBHOOK_URL = 'https://tgbotquranaudio.onrender.com/'  # Замени на свой публичный URL
 
 bot = Application.builder().token(TOKEN).build()
 SURA_OFFICIAL_NAMES = {
